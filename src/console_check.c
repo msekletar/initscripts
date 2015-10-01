@@ -168,19 +168,49 @@ out:
 
 int emit_console_event(char *dev, int speed) {
 	char *args[] = { "initctl", "emit", "--no-wait", "fedora.serial-console-available", NULL, NULL, NULL };
+	char *buf;
+	size_t size;
+	FILE *stream;
 	
 	if (dev)
 		asprintf(&args[4],"DEV=%s",dev);
 	if (speed)
 		asprintf(&args[5],"SPEED=%d",speed);
+
+	stream = open_memstream(&buf, &size);
+	if (stream) {
+		int i;
+
+		fprintf(stream, "Invoking initctl: ");
+		for (i = 0; i < 6; i++)
+			fprintf(stream, "%s ", args[i]);
+		fprintf(stream, "\n");
+		fflush(stream);
+
+		fprintf(stderr, "%s", buf);
+
+		fclose(stream);
+		free(buf);
+	}
+        
 	execv("/sbin/initctl", args);
 	return 1;	
 }
 
 int main(int argc, char **argv) {
 	char *device;
-	int speed;
-	
+	int speed, r, kmsg_fd = -1;
+
+	kmsg_fd = open("/dev/kmsg", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
+	if (kmsg_fd >= 0) {
+		r = dup3(kmsg_fd, fileno(stderr), O_CLOEXEC);
+		if (r < 0)
+			fprintf(stderr, "Failed to redirect stderr to /dev/kmsg, ignoring: %m\n");
+
+		close(kmsg_fd);
+	} else
+		fprintf(stderr, "Failed to open /dev/kmsg, ignoring: %m\n");
+        	
 	if (argc < 2) {
 		printf("usage: console_check <device>\n");
 		exit(1);
